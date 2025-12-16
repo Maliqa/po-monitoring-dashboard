@@ -90,7 +90,7 @@ st.caption("ISO 9001:2015 – Order, Delivery & Performance Monitoring System")
 with st.expander("📌 Status Definition"):
     st.markdown("""
 - **OPEN** → PO masih berjalan  
-- **COMPLETED** → PO selesai (Actual ETA terisi)  
+- **COMPLETED** → PO selesai  
 - **OVERDUE** → Lewat Expected ETA  
 """)
 
@@ -146,6 +146,35 @@ with tabs[1]:
     if df.empty:
         st.info("Belum ada data PO")
     else:
+        # ===== FILTER & SEARCH =====
+        f1, f2, f3, f4 = st.columns(4)
+
+        with f1:
+            f_sales = st.selectbox("Sales Engineer", ["All"] + SALES_ENGINEERS)
+        with f2:
+            f_status = st.selectbox("Status PO", ["All"] + STATUS_LIST)
+        with f3:
+            f_month = st.selectbox("Month", ["All"] + list(range(1, 13)))
+        with f4:
+            f_year = st.selectbox("Year", sorted(df["year"].dropna().unique()), index=len(df["year"].dropna().unique()) - 1)
+
+        search = st.text_input("🔍 Search (Customer / PO No)")
+
+        if f_sales != "All":
+            df = df[df["sales_engineer"] == f_sales]
+        if f_status != "All":
+            df = df[df["status"] == f_status]
+        if f_month != "All":
+            df = df[df["month"] == f_month]
+        df = df[df["year"] == f_year]
+
+        if search:
+            df = df[
+                df["customer_name"].str.contains(search, case=False, na=False) |
+                df["po_no"].str.contains(search, case=False, na=False)
+            ]
+
+        # ===== CARD VIEW =====
         for _, r in df.iterrows():
             with st.container(border=True):
                 st.markdown(f"### 🏢 {r['customer_name']}")
@@ -203,7 +232,7 @@ with tabs[1]:
                                 e_top, e_nom, e_prog, e_rem, r["id"]
                             ))
                             conn.commit()
-                            st.success("✅ PO berhasil diupdate")
+                            st.success("✅ PO updated")
                             st.rerun()
 
                 # ===== DELETE =====
