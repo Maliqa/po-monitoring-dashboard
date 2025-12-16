@@ -1,45 +1,59 @@
 import streamlit as st
 import sqlite3
-from datetime import datetime, date
 import pandas as pd
-import matplotlib.pyplot as plt
+from datetime import date, datetime
 from pathlib import Path
+import matplotlib.pyplot as plt
 
-# ================= PAGE CONFIG =================
+# ================= CONFIG =================
 st.set_page_config(
     page_title="PO Monitoring Dashboard",
     page_icon="📊",
     layout="wide"
 )
 
-# ================= CSS (COMPACT UI) =================
-st.markdown("""
-<style>
-.block-container {padding: 1.5rem 2rem;}
-input, textarea {font-size: 0.85rem !important;}
-label {font-size: 0.8rem !important;}
-div[data-testid="stVerticalBlock"] > div {gap: 0.45rem;}
-button {padding: 0.35rem 0.9rem !important; font-size: 0.85rem;}
-</style>
-""", unsafe_allow_html=True)
-
-# ================= CONSTANT =================
 DB_DIR = "data"
 DB_PATH = f"{DB_DIR}/po_monitoring.db"
 LOGO_PATH = "assets/cistech.png"
 
+DIVISIONS = ["Industrial Cleaning", "Condition Monitoring"]
 SALES_ENGINEERS = ["RSM", "TNU", "MFA", "HSA", "HTA"]
-DIVISIONS = ["Condition Monitoring", "Industrial Cleaning"]
 
-Path(DB_DIR).mkdir(exist_ok=True)
+CURRENT_YEAR = date.today().year
+
+# ================= UI STYLE =================
+st.markdown("""
+<style>
+html, body { font-size: 14px; }
+input, textarea { padding: 6px !important; }
+.section-title { font-size: 18px; font-weight: 600; margin-bottom: 6px; }
+.kpi-box {
+    padding: 12px;
+    border-radius: 8px;
+    background: #111827;
+    border: 1px solid #1f2937;
+}
+.po-card {
+    padding: 12px;
+    border-radius: 10px;
+    border: 1px solid #1f2937;
+    background: #0f172a;
+    margin-bottom: 10px;
+}
+.muted { color: #9ca3af; font-size: 12px; }
+</style>
+""", unsafe_allow_html=True)
 
 # ================= DATABASE =================
+Path(DB_DIR).mkdir(exist_ok=True)
+
 def get_conn():
     return sqlite3.connect(DB_PATH, check_same_thread=False)
 
 conn = get_conn()
 c = conn.cursor()
 
+# === CREATE TABLE (SAFE) ===
 c.execute("""
 CREATE TABLE IF NOT EXISTS po (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -51,8 +65,8 @@ CREATE TABLE IF NOT EXISTS po (
     po_received_date TEXT,
     expected_eta TEXT,
     actual_eta TEXT,
-    nominal_po INTEGER,
     top TEXT,
+    nominal_po REAL,
     payment_progress INTEGER,
     remarks TEXT,
     status TEXT,
@@ -70,15 +84,16 @@ def calculate_status(expected_eta, actual_eta):
         return "OVERDUE"
     return "OPEN"
 
-def fetch_df():
-    df = pd.read_sql("SELECT * FROM po", conn)
-
+def load_data():
+    df = pd.read_sql("SELECT * FROM po ORDER BY created_at DESC", conn)
     if df.empty:
         return df
 
     df["po_received_date"] = pd.to_datetime(df["po_received_date"]).dt.date
     df["expected_eta"] = pd.to_datetime(df["expected_eta"]).dt.date
     df["actual_eta"] = pd.to_datetime(df["actual_eta"], errors="coerce").dt.date
+    df["year"] = pd.to_datetime(df["po_received_date"]).dt.year
+    df["month"] = pd.to_datetime(df["po_received_date"]).dt.month
 
     df["status"] = df.apply(
         lambda x: calculate_status(x["expected_eta"], x["actual_eta"]),
@@ -87,174 +102,146 @@ def fetch_df():
 
     return df
 
-def rupiah(val):
-    return f"Rp {val:,.0f}".replace(",", ".")
-
 # ================= HEADER =================
-with st.container():
-    if Path(LOGO_PATH).exists():
-        st.image(LOGO_PATH, width=260)
+if Path(LOGO_PATH).exists():
+    st.image(LOGO_PATH, width=300)
 
-    st.markdown("## PO Monitoring Dashboard")
-    st.caption("ISO 9001:2015 – Order, Delivery & Performance Monitoring System")
-
-with st.expander("📌 Status Definition"):
-    st.markdown("""
-**OPEN** – PO masih berjalan  
-**COMPLETED** – PO selesai & wajib Actual ETA  
-**OVERDUE** – Melewati Expected ETA
-""")
+st.markdown("## PO Monitoring Dashboard")
+st.caption("ISO 9001:2015 – Order, Delivery & Performance Monitoring System")
 
 tabs = st.tabs(["➕ Input PO", "📋 Data PO", "📊 Dashboard"])
 
-# ================= TAB 1 : INPUT =================
+# ================= TAB 1: INPUT =================
 with tabs[0]:
-    st.subheader("➕ Input Purchase Order")
+    st.markdown('<div class="section-title">➕ Input Purchase Order</div>', unsafe_allow_html=True)
 
-    with st.form("po_form", clear_on_submit=True):
+    with st.form("input_po"):
+        c1, c2, c3 = st.columns(3)
 
-        col1, col2 = st.columns(2)
-
-        with col1:
+        with c1:
             customer_name = st.text_input("Customer Name")
             sales_engineer = st.selectbox("Sales Engineer", SALES_ENGINEERS)
             division = st.selectbox("Division", DIVISIONS)
+
+        with c2:
             quotation_no = st.text_input("Quotation Number")
-
-        with col2:
             po_no = st.text_input("PO Number")
-            po_received_date = st.date_input("PO Received Date")
+            nominal_po = st.number_input("Nominal PO (Rp)", min_value=0.0, step=1_000_000.0)
+
+        with c3:
+            po_received_date = st.date_input("PO Received Date", value=date.today())
             expected_eta = st.date_input("Expected ETA")
-            actual_eta = st.date_input("Actual ETA (Completed)", value=None)
-
-        st.markdown("##### Financial")
-        col3, col4 = st.columns(2)
-
-        with col3:
-            nominal_po = st.number_input(
-                "PO Value (Rp)", min_value=0, step=1_000_000
-            )
-
-        with col4:
-            payment_progress = st.slider("Payment Progress (%)", 0, 100, 0)
+            actual_eta = st.date_input("Actual ETA", value=None)
 
         top = st.text_input("Term of Payment (TOP)")
-        remarks = st.text_area("Remarks", height=70)
+        payment_progress = st.slider("Payment Progress (%)", 0, 100, 0)
+        remarks = st.text_area("Remarks", height=80)
 
-        submit = st.form_submit_button("💾 Save PO")
-
-        if submit:
+        if st.form_submit_button("💾 Save PO"):
             status = calculate_status(expected_eta, actual_eta)
+
             c.execute("""
-            INSERT INTO po VALUES (
-                NULL,?,?,?,?,?,?,?,?,?,?,?,?,?
-            )
+            INSERT INTO po (
+                customer_name, sales_engineer, division,
+                quotation_no, po_no, po_received_date,
+                expected_eta, actual_eta, top,
+                nominal_po, payment_progress,
+                remarks, status, created_at
+            ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)
             """, (
                 customer_name, sales_engineer, division,
-                quotation_no, po_no,
-                po_received_date.isoformat(),
+                quotation_no, po_no, po_received_date.isoformat(),
                 expected_eta.isoformat(),
                 actual_eta.isoformat() if actual_eta else None,
-                int(nominal_po), top, payment_progress,
+                top, nominal_po, payment_progress,
                 remarks, status, datetime.now().isoformat()
             ))
             conn.commit()
             st.success("✅ PO berhasil disimpan")
+            st.rerun()
 
-# ================= TAB 2 : DATA =================
+# ================= TAB 2: DATA =================
 with tabs[1]:
-    st.subheader("📋 Data Purchase Order")
+    st.markdown('<div class="section-title">📋 Data Purchase Order</div>', unsafe_allow_html=True)
 
-    df = fetch_df()
+    df = load_data()
 
-    if df.empty:
-        st.info("Belum ada data PO")
-    else:
-        for _, row in df.iterrows():
-            with st.expander(f"🏢 {row['customer_name']} | {row['po_no']} | {row['status']}"):
-                col1, col2, col3 = st.columns(3)
+    f1, f2, f3, f4 = st.columns(4)
+    with f1:
+        fsales = st.selectbox("Sales Engineer", ["All"] + SALES_ENGINEERS)
+    with f2:
+        fstatus = st.selectbox("Status", ["All", "OPEN", "COMPLETED", "OVERDUE"])
+    with f3:
+        fmonth = st.selectbox("Month", ["All"] + list(range(1, 13)))
+    with f4:
+        fyear = st.selectbox("Year", sorted(df["year"].unique()) if not df.empty else [CURRENT_YEAR],
+                              index=0)
 
-                with col1:
-                    st.write("Sales :", row["sales_engineer"])
-                    st.write("Division :", row["division"])
-                    st.write("Quotation :", row["quotation_no"])
+    if fsales != "All":
+        df = df[df["sales_engineer"] == fsales]
+    if fstatus != "All":
+        df = df[df["status"] == fstatus]
+    if fmonth != "All":
+        df = df[df["month"] == fmonth]
+    df = df[df["year"] == fyear]
 
-                with col2:
-                    st.write("PO Date :", row["po_received_date"])
-                    st.write("Expected ETA :", row["expected_eta"])
-                    st.write("Actual ETA :", row["actual_eta"] or "-")
+    for _, row in df.iterrows():
+        st.markdown(f"""
+        <div class="po-card">
+            <b>{row['customer_name']}</b><br>
+            <span class="muted">
+                PO: {row['po_no']} | {row['sales_engineer']} | {row['status']}
+            </span><br>
+            <b>Rp {row['nominal_po']:,.0f}</b>
+        </div>
+        """, unsafe_allow_html=True)
 
-                with col3:
-                    st.write("PO Value :", rupiah(row["nominal_po"]))
-                    st.progress(row["payment_progress"])
-                    st.caption(f"Payment {row['payment_progress']}%")
+        with st.expander("📄 Detail & Edit"):
+            c1, c2 = st.columns(2)
+            with c1:
+                new_expected = st.date_input("Expected ETA", row["expected_eta"], key=f"e{row['id']}")
+                new_actual = st.date_input("Actual ETA", row["actual_eta"], key=f"a{row['id']}")
+            with c2:
+                new_payment = st.slider("Payment %", 0, 100, row["payment_progress"], key=f"p{row['id']}")
+                new_remarks = st.text_area("Remarks", row["remarks"], key=f"r{row['id']}")
 
-                st.write("Remarks :", row["remarks"] or "-")
+            if st.button("💾 Update", key=f"u{row['id']}"):
+                new_status = calculate_status(new_expected, new_actual)
+                c.execute("""
+                UPDATE po SET
+                    expected_eta=?, actual_eta=?,
+                    payment_progress=?, remarks=?, status=?
+                WHERE id=?
+                """, (
+                    new_expected.isoformat(),
+                    new_actual.isoformat() if new_actual else None,
+                    new_payment, new_remarks, new_status, row["id"]
+                ))
+                conn.commit()
+                st.rerun()
 
-                col_edit, col_del = st.columns(2)
+            if st.button("🗑 Delete", key=f"d{row['id']}"):
+                c.execute("DELETE FROM po WHERE id=?", (row["id"],))
+                conn.commit()
+                st.rerun()
 
-                with col_edit:
-                    if st.button("✏️ Edit", key=f"e{row['id']}"):
-                        st.session_state["edit_id"] = row["id"]
-
-                with col_del:
-                    if st.button("🗑 Delete", key=f"d{row['id']}"):
-                        c.execute("DELETE FROM po WHERE id=?", (row["id"],))
-                        conn.commit()
-                        st.rerun()
-
-# ================= TAB 3 : DASHBOARD =================
+# ================= TAB 3: DASHBOARD =================
 with tabs[2]:
-    st.subheader("📊 KPI & Analytics")
+    st.markdown('<div class="section-title">📊 KPI Summary</div>', unsafe_allow_html=True)
 
-    df = fetch_df()
-    current_year = date.today().year
+    df = load_data()
+    df = df[df["year"] == CURRENT_YEAR]
 
-    # ===== FILTER =====
-    colf1, colf2, colf3, colf4 = st.columns(4)
-
-    with colf1:
-        f_sales = st.selectbox("Sales Engineer", ["All"] + SALES_ENGINEERS)
-
-    with colf2:
-        f_status = st.selectbox("Status PO", ["All", "OPEN", "COMPLETED", "OVERDUE"])
-
-    with colf3:
-        f_month = st.selectbox("Month", ["All"] + list(range(1, 13)))
-
-    with colf4:
-        f_year = st.selectbox("Year", sorted(df["po_received_date"].apply(lambda x: x.year).unique()), index=0)
-
-    # Apply filters
-    if f_sales != "All":
-        df = df[df["sales_engineer"] == f_sales]
-
-    if f_status != "All":
-        df = df[df["status"] == f_status]
-
-    if f_month != "All":
-        df = df[df["po_received_date"].apply(lambda x: x.month) == f_month]
-
-    df = df[df["po_received_date"].apply(lambda x: x.year) == f_year]
-
-    # ===== KPI =====
     open_val = df[df["status"] == "OPEN"]["nominal_po"].sum()
-    comp_val = df[df["status"] == "COMPLETED"]["nominal_po"].sum()
-    over_val = df[df["status"] == "OVERDUE"]["nominal_po"].sum()
+    completed_val = df[df["status"] == "COMPLETED"]["nominal_po"].sum()
+    overdue_val = df[df["status"] == "OVERDUE"]["nominal_po"].sum()
 
-    colk1, colk2, colk3 = st.columns(3)
-    colk1.metric("Total OPEN PO Value", rupiah(open_val))
-    colk2.metric("Total COMPLETED PO Value", rupiah(comp_val))
-    colk3.metric("Total OVERDUE PO Value", rupiah(over_val))
+    c1, c2, c3 = st.columns(3)
+    c1.markdown(f"<div class='kpi-box'><b>OPEN</b><br>Rp {open_val:,.0f}</div>", unsafe_allow_html=True)
+    c2.markdown(f"<div class='kpi-box'><b>COMPLETED</b><br>Rp {completed_val:,.0f}</div>", unsafe_allow_html=True)
+    c3.markdown(f"<div class='kpi-box'><b>OVERDUE</b><br>Rp {overdue_val:,.0f}</div>", unsafe_allow_html=True)
 
-    # ===== CHART =====
-    st.markdown("### 📊 Revenue per Sales")
-    rev = df[df["status"] == "COMPLETED"].groupby("sales_engineer")["nominal_po"].sum()
-
-    if not rev.empty:
-        fig, ax = plt.subplots()
-        rev.plot(kind="bar", ax=ax)
-        ax.set_ylabel("Revenue (Rp)")
-        st.pyplot(fig)
-    else:
-        st.info("Belum ada revenue COMPLETED")
+    st.markdown("### Revenue per Sales Engineer")
+    fig, ax = plt.subplots()
+    df.groupby("sales_engineer")["nominal_po"].sum().plot(kind="bar", ax=ax)
+    st.pyplot(fig)
