@@ -246,11 +246,67 @@ with tabs[1]:
                             st.rerun()
 
 # ================= TAB 3 : DASHBOARD =================
+# ================= TAB 3 : DASHBOARD =================
 with tabs[2]:
     st.subheader("📊 Dashboard")
+
     df = fetch_df()
-    if not df.empty:
-        c1, c2, c3 = st.columns(3)
-        c1.metric("OPEN", rupiah(df[df["status"]=="OPEN"]["nominal_po"].sum()))
-        c2.metric("COMPLETED", rupiah(df[df["status"]=="COMPLETED"]["nominal_po"].sum()))
-        c3.metric("OVERDUE", rupiah(df[df["status"]=="OVERDUE"]["nominal_po"].sum()))
+
+    if df.empty:
+        st.info("Belum ada data PO")
+    else:
+        # ===== KPI =====
+        open_val = df[df["status"] == "OPEN"]["nominal_po"].sum()
+        comp_val = df[df["status"] == "COMPLETED"]["nominal_po"].sum()
+        over_val = df[df["status"] == "OVERDUE"]["nominal_po"].sum()
+        total_val = df["nominal_po"].sum()
+
+        c1, c2, c3, c4 = st.columns(4)
+        c1.metric("OPEN", rupiah(open_val))
+        c2.metric("COMPLETED", rupiah(comp_val))
+        c3.metric("OVERDUE", rupiah(over_val))
+        c4.metric("TOTAL REVENUE", rupiah(total_val))
+
+        st.divider()
+
+        # ===== GRAPH 1 : Revenue per Sales Engineer =====
+        st.subheader("💼 Revenue per Sales Engineer")
+
+        rev_sales = (
+            df.groupby("sales_engineer", as_index=False)["nominal_po"]
+            .sum()
+            .sort_values("nominal_po", ascending=False)
+        )
+
+        if not rev_sales.empty:
+            fig1, ax1 = plt.subplots(figsize=(8, 4))
+            ax1.bar(rev_sales["sales_engineer"], rev_sales["nominal_po"])
+            ax1.set_ylabel("Revenue (Rp)")
+            ax1.set_xlabel("Sales Engineer")
+            ax1.set_title("Revenue per Sales Engineer")
+            ax1.tick_params(axis="x", rotation=0)
+
+            st.pyplot(fig1)
+        else:
+            st.info("Belum ada data revenue per sales")
+
+        st.divider()
+
+        # ===== GRAPH 2 : Revenue Distribution by Status =====
+        st.subheader("📌 Revenue Distribution by Status")
+
+        rev_status = df.groupby("status")["nominal_po"].sum()
+
+        if not rev_status.empty:
+            fig2, ax2 = plt.subplots(figsize=(5, 5))
+            ax2.pie(
+                rev_status,
+                labels=rev_status.index,
+                autopct="%1.1f%%",
+                startangle=90
+            )
+            ax2.set_title("Revenue by PO Status")
+
+            st.pyplot(fig2)
+        else:
+            st.info("Belum ada data status revenue")
