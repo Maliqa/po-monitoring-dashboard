@@ -126,9 +126,21 @@ with tabs[0]:
 
         if st.form_submit_button("💾 Save PO"):
             c.execute("""
-                INSERT INTO po VALUES (
-                    NULL,?,?,?,?,?,?,?,?,?,?,?,?
-                )
+                INSERT INTO po (
+                    customer_name,
+                    sales_engineer,
+                    division,
+                    quotation_no,
+                    po_no,
+                    po_received_date,
+                    expected_eta,
+                    actual_eta,
+                    top,
+                    nominal_po,
+                    payment_progress,
+                    remarks,
+                    created_at
+                ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)
             """, (
                 customer_name,
                 sales_engineer,
@@ -164,11 +176,8 @@ with tabs[1]:
         with f3:
             f_month = st.selectbox("Month", ["All"] + list(range(1, 13)))
         with f4:
-            f_year = st.selectbox(
-                "Year",
-                sorted(df["year"].dropna().unique()),
-                index=len(sorted(df["year"].dropna().unique())) - 1
-            )
+            years = sorted(df["year"].dropna().unique())
+            f_year = st.selectbox("Year", years, index=len(years) - 1)
 
         if f_sales != "All":
             df = df[df["sales_engineer"] == f_sales]
