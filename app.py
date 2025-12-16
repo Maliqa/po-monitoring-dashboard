@@ -63,16 +63,21 @@ def fetch_df():
     if df.empty:
         return df
 
-    df["po_received_date"] = pd.to_datetime(df["po_received_date"]).dt.date
-    df["expected_eta"] = pd.to_datetime(df["expected_eta"]).dt.date
-    df["actual_eta"] = pd.to_datetime(df["actual_eta"], errors="coerce").dt.date
+    # ⬇️ JANGAN pakai .dt.date
+    df["po_received_date"] = pd.to_datetime(df["po_received_date"])
+    df["expected_eta"] = pd.to_datetime(df["expected_eta"])
+    df["actual_eta"] = pd.to_datetime(df["actual_eta"], errors="coerce")
     df["created_at"] = pd.to_datetime(df["created_at"])
 
+    # Aman pakai .dt sekarang
     df["year"] = df["po_received_date"].dt.year
     df["month"] = df["po_received_date"].dt.month
 
     df["status"] = df.apply(
-        lambda x: calculate_status(x["expected_eta"], x["actual_eta"]),
+        lambda x: calculate_status(
+            x["expected_eta"].date(),
+            x["actual_eta"].date() if pd.notna(x["actual_eta"]) else None
+        ),
         axis=1
     )
 
