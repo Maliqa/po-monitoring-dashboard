@@ -21,10 +21,11 @@ DIVISIONS = [
 ]
 
 SALES_ENGINEERS = [
-    "Andi",
-    "Budi",
-    "Rina",
-    "Dewi"
+    "RSM",
+    "TNU",
+    "MFA",
+    "HSA",
+    "HTA"
 ]
 
 # ================= DATABASE =================
