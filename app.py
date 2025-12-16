@@ -67,8 +67,9 @@ def fetch_df():
     df["expected_eta"] = pd.to_datetime(df["expected_eta"]).dt.date
     df["actual_eta"] = pd.to_datetime(df["actual_eta"], errors="coerce").dt.date
     df["created_at"] = pd.to_datetime(df["created_at"])
-    df["year"] = df["po_received_date"].apply(lambda x: x.year)
-    df["month"] = df["po_received_date"].apply(lambda x: x.month)
+
+    df["year"] = df["po_received_date"].dt.year
+    df["month"] = df["po_received_date"].dt.month
 
     df["status"] = df.apply(
         lambda x: calculate_status(x["expected_eta"], x["actual_eta"]),
@@ -78,19 +79,19 @@ def fetch_df():
     return df
 
 def rupiah(val):
-    return f"Rp {val:,.0f}".replace(",", ".")
+    return f"Rp {int(val):,}".replace(",", ".")
 
 # ================= HEADER =================
 if Path(LOGO_PATH).exists():
-    st.image(LOGO_PATH, width=280)
+    st.image(LOGO_PATH, width=260)
 
 st.title("PO Monitoring Dashboard")
 st.caption("ISO 9001:2015 – Order, Delivery & Performance Monitoring System")
 
-with st.expander("📌 Status Definition", expanded=False):
+with st.expander("📌 Status Definition"):
     st.markdown("""
 - **OPEN** → PO masih berjalan  
-- **COMPLETED** → PO selesai & wajib Actual ETA  
+- **COMPLETED** → PO selesai (Actual ETA wajib)  
 - **OVERDUE** → Lewat Expected ETA
 """)
 
@@ -122,10 +123,24 @@ with tabs[0]:
 
         if st.form_submit_button("💾 Save PO"):
             status = calculate_status(expected_eta, actual_eta)
+
             c.execute("""
-                INSERT INTO po VALUES (
-                    NULL,?,?,?,?,?,?,?,?,?,?,?,?,?
-                )
+                INSERT INTO po (
+                    customer_name,
+                    sales_engineer,
+                    division,
+                    quotation_no,
+                    po_no,
+                    po_received_date,
+                    expected_eta,
+                    actual_eta,
+                    top,
+                    nominal_po,
+                    payment_progress,
+                    remarks,
+                    status,
+                    created_at
+                ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)
             """, (
                 customer_name,
                 sales_engineer,
@@ -153,17 +168,15 @@ with tabs[1]:
     if df.empty:
         st.info("Belum ada data PO")
     else:
-        colf1, colf2, colf3, colf4 = st.columns(4)
-        with colf1:
+        f1, f2, f3, f4 = st.columns(4)
+        with f1:
             f_sales = st.selectbox("Sales Engineer", ["All"] + SALES_ENGINEERS)
-        with colf2:
+        with f2:
             f_status = st.selectbox("Status PO", ["All"] + STATUS_LIST)
-        with colf3:
+        with f3:
             f_month = st.selectbox("Month", ["All"] + list(range(1, 13)))
-        with colf4:
+        with f4:
             f_year = st.selectbox("Year", sorted(df["year"].unique()), index=len(df["year"].unique()) - 1)
-
-        search = st.text_input("🔍 Search (Customer / PO)")
 
         if f_sales != "All":
             df = df[df["sales_engineer"] == f_sales]
@@ -172,12 +185,6 @@ with tabs[1]:
         if f_month != "All":
             df = df[df["month"] == f_month]
         df = df[df["year"] == f_year]
-
-        if search:
-            df = df[
-                df["customer_name"].str.contains(search, case=False) |
-                df["po_no"].str.contains(search, case=False)
-            ]
 
         for _, r in df.iterrows():
             with st.container(border=True):
@@ -201,18 +208,6 @@ with tabs[1]:
 - **Remarks:** {r['remarks'] or "-"}
 """)
 
-                with st.expander("✏️ Edit / 🗑 Delete"):
-                    new_progress = st.slider("Payment Progress", 0, 100, r["payment_progress"], key=f"p{r['id']}")
-                    if st.button("💾 Update", key=f"u{r['id']}"):
-                        c.execute("UPDATE po SET payment_progress=? WHERE id=?", (new_progress, r["id"]))
-                        conn.commit()
-                        st.rerun()
-
-                    if st.button("🗑 Delete", key=f"d{r['id']}"):
-                        c.execute("DELETE FROM po WHERE id=?", (r["id"],))
-                        conn.commit()
-                        st.rerun()
-
 # ================= TAB 3 : DASHBOARD =================
 with tabs[2]:
     st.subheader("📊 Dashboard")
@@ -221,18 +216,13 @@ with tabs[2]:
     if df.empty:
         st.info("Belum ada data")
     else:
-        open_val = df[df["status"] == "OPEN"]["nominal_po"].sum()
-        comp_val = df[df["status"] == "COMPLETED"]["nominal_po"].sum()
-        over_val = df[df["status"] == "OVERDUE"]["nominal_po"].sum()
-
         c1, c2, c3 = st.columns(3)
-        c1.metric("Total OPEN PO Value", rupiah(open_val))
-        c2.metric("Total COMPLETED PO Value", rupiah(comp_val))
-        c3.metric("Total OVERDUE PO Value", rupiah(over_val))
+        c1.metric("Total OPEN PO", rupiah(df[df["status"] == "OPEN"]["nominal_po"].sum()))
+        c2.metric("Total COMPLETED PO", rupiah(df[df["status"] == "COMPLETED"]["nominal_po"].sum()))
+        c3.metric("Total OVERDUE PO", rupiah(df[df["status"] == "OVERDUE"]["nominal_po"].sum()))
 
         rev = df.groupby("sales_engineer")["nominal_po"].sum()
-        if not rev.empty:
-            fig, ax = plt.subplots()
-            rev.plot(kind="bar", ax=ax)
-            ax.set_ylabel("Revenue")
-            st.pyplot(fig)
+        fig, ax = plt.subplots()
+        rev.plot(kind="bar", ax=ax)
+        ax.set_ylabel("Revenue")
+        st.pyplot(fig)
