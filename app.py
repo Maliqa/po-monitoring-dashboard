@@ -87,6 +87,8 @@ def calculate_status(expected_eta, actual_eta):
 def load_data():
     df = pd.read_sql("SELECT * FROM po ORDER BY created_at DESC", conn)
     if df.empty:
+        df["year"] = []
+        df["month"] = []
         return df
 
     df["po_received_date"] = pd.to_datetime(df["po_received_date"]).dt.date
